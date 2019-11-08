@@ -583,7 +583,7 @@ impl LightWallet {
         }
     }
 
-    pub fn address_from_prefix_sk(prefix: &[u8; 2], sk: &secp256k1::SecretKey) -> String {
+    pub fn address_from_prefix_sk(prefix: &[u8; 1], sk: &secp256k1::SecretKey) -> String {
         let secp = secp256k1::Secp256k1::new();
         let pk = secp256k1::PublicKey::from_secret_key(&secp, &sk);
 
@@ -780,7 +780,7 @@ impl LightWallet {
                     .map(|nd| if nd.spent.is_none() { nd.note.value } else { 0 })
                     .sum::<u64>()
             })
-            .sum::<u64>()
+            .sum::<u64>() as u64
     }
 
     // Get all (unspent) utxos. Unconfirmed spent utxos are included
@@ -804,12 +804,12 @@ impl LightWallet {
                 }
             })
             .map(|utxo| utxo.value )
-            .sum::<u64>()
+            .sum::<u64>() as u64
     }
 
     pub fn verified_zbalance(&self, addr: Option<String>) -> u64 {
         let anchor_height = match self.get_target_height_and_anchor_offset() {
-            Some((height, anchor_offset)) => height - anchor_offset as u32 - 1,
+            Some((height, anchor_offset)) => height - anchor_offset as u32 ,
             None => return 0,
         };
 
@@ -832,7 +832,7 @@ impl LightWallet {
                             }
                         })
                         .map(|nd| if nd.spent.is_none() && nd.unconfirmed_spent.is_none() { nd.note.value } else { 0 })
-                        .sum::<u64>()
+                        .sum::<u64>() as u64
                 } else {
                     0
                 }
@@ -1370,7 +1370,7 @@ impl LightWallet {
             }
         }
 
-        let total_value = tos.iter().map(|to| to.1).sum::<u64>();
+        let total_value = tos.iter().map(|to| to.1).sum::<u64>() as u64;
         println!(
             "0: Creating transaction sending {} ztoshis to {} addresses",
             total_value, tos.len()
@@ -1429,10 +1429,10 @@ impl LightWallet {
         let mut builder = Builder::new(height);
 
         // A note on t addresses
-        // Funds received by t-addresses can't be explicitly spent in ZecWallet. 
-        // ZecWallet will lazily consolidate all t address funds into your shielded addresses. 
+        // Funds received by t-addresses can't be explicitly spent in SafeWallet. 
+        // SafeWallet will lazily consolidate all t address funds into your shielded addresses. 
         // Specifically, if you send an outgoing transaction that is sent to a shielded address,
-        // ZecWallet will add all your t-address funds into that transaction, and send them to your shielded
+        // SafeWallet will add all your t-address funds into that transaction, and send them to your shielded
         // address as change.
         let tinputs: Vec<_> = self.get_utxos().iter()
                                 .filter(|utxo| utxo.unconfirmed_spent.is_none()) // Remove any unconfirmed spends
@@ -1478,7 +1478,7 @@ impl LightWallet {
         if selected_value < u64::from(target_value) {
             let e = format!(
                 "Insufficient verified funds (have {}, need {:?}). NOTE: funds need {} confirmations before they can be spent.",
-                selected_value, target_value, self.config.anchor_offset + 1
+                selected_value, target_value, self.config.anchor_offset
             );
             error!("{}", e);
             return Err(e);
