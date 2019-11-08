@@ -27,9 +27,9 @@ use crate::ANCHOR_OFFSET;
 
 mod checkpoints;
 
-pub const DEFAULT_SERVER: &str = "https://lightd-main.zecwallet.co:443";
-pub const WALLET_NAME: &str    = "zecwallet-light-wallet.dat";
-pub const LOGFILE_NAME: &str   = "zecwallet-light-wallet.debug.log";
+pub const DEFAULT_SERVER: &str = "https://lightwallet.safecoin.org:443";
+pub const WALLET_NAME: &str    = "safewallet-light-wallet.dat";
+pub const LOGFILE_NAME: &str   = "safewallet-light-wallet.debug.log";
 
 #[derive(Clone, Debug)]
 pub struct WalletStatus {
@@ -107,10 +107,10 @@ impl LightClientConfig {
         } else {
             if cfg!(target_os="macos") || cfg!(target_os="windows") {
                 zcash_data_location = dirs::data_dir().expect("Couldn't determine app data directory!");
-                zcash_data_location.push("Zcash");
+                zcash_data_location.push("Safecoin");
             } else {
                 zcash_data_location = dirs::home_dir().expect("Couldn't determine home directory!");
-                zcash_data_location.push(".zcash");
+                zcash_data_location.push(".safecoin");
             };
 
             match &self.chain_name[..] {
@@ -125,8 +125,8 @@ impl LightClientConfig {
         match std::fs::create_dir_all(zcash_data_location.clone()) {
             Ok(_) => zcash_data_location.into_boxed_path(),
             Err(e) => {
-                eprintln!("Couldn't create zcash directory!\n{}", e);
-                panic!("Couldn't create zcash directory!");
+                eprintln!("Couldn't create safecoin directory!\n{}", e);
+                panic!("Couldn't create safecoin directory!");
             }
         }
     }
@@ -194,21 +194,17 @@ impl LightClientConfig {
         }
     }
 
-    pub fn base58_pubkey_address(&self) -> [u8; 2] {
+    pub fn base58_pubkey_address(&self) -> [u8; 1] {
         match &self.chain_name[..] {
             "main"    => mainnet::B58_PUBKEY_ADDRESS_PREFIX,
-            "test"    => testnet::B58_PUBKEY_ADDRESS_PREFIX,
-            "regtest" => regtest::B58_PUBKEY_ADDRESS_PREFIX,
             c         => panic!("Unknown chain {}", c)
         }
     }
 
 
-    pub fn base58_script_address(&self) -> [u8; 2] {
+    pub fn base58_script_address(&self) -> [u8; 1] {
         match &self.chain_name[..] {
             "main"    => mainnet::B58_SCRIPT_ADDRESS_PREFIX,
-            "test"    => testnet::B58_SCRIPT_ADDRESS_PREFIX,
-            "regtest" => regtest::B58_SCRIPT_ADDRESS_PREFIX,
             c         => panic!("Unknown chain {}", c)
         }
     }
@@ -353,7 +349,7 @@ impl LightClient {
         info!("Created LightClient to {}", &config.server);
 
         if crate::lightwallet::bugs::BugBip39Derivation::has_bug(&lc) {
-            let m = format!("WARNING!!!\nYour wallet has a bip39derivation bug that's showing incorrect addresses.\nPlease run 'fixbip39bug' to automatically fix the address derivation in your wallet!\nPlease see: https://github.com/adityapk00/zecwallet-light-cli/blob/master/bip39bug.md");
+            let m = format!("WARNING!!!\nYour wallet has a bip39derivation bug that's showing incorrect addresses.\nPlease run 'fixbip39bug' to automatically fix the address derivation in your wallet!\nPlease see: https://github.com/OleksandrBlack/safewallet-light-cli/blob/master/bip39bug.md");
              info!("{}", m);
              println!("{}", m);
         }
@@ -779,8 +775,8 @@ impl LightClient {
         let wallet = self.wallet.write().unwrap();
 
         let new_address = match addr_type {
-            "z" => wallet.add_zaddr(),
-            "t" => wallet.add_taddr(),
+            "zs" => wallet.add_zaddr(),
+            "R" => wallet.add_taddr(),
             _   => {
                 let e = format!("Unrecognized address type: {}", addr_type);
                 error!("{}", e);
@@ -1078,24 +1074,24 @@ pub mod tests {
         let lc = super::LightClient::unconnected(TEST_SEED.to_string(), None).unwrap();
 
         assert!(!lc.do_export(None).is_err());
-        assert!(!lc.do_new_address("z").is_err());
-        assert!(!lc.do_new_address("t").is_err());
+        assert!(!lc.do_new_address("zs").is_err());
+        assert!(!lc.do_new_address("R").is_err());
         assert_eq!(lc.do_seed_phrase().unwrap()["seed"], TEST_SEED.to_string());
 
         // Encrypt and Lock the wallet
         lc.wallet.write().unwrap().encrypt("password".to_string()).unwrap();
         assert!(lc.do_export(None).is_err());
         assert!(lc.do_seed_phrase().is_err());
-        assert!(lc.do_new_address("t").is_err());
-        assert!(lc.do_new_address("z").is_err());
-        assert!(lc.do_send(vec![("z", 0, None)]).is_err());
+        assert!(lc.do_new_address("R").is_err());
+        assert!(lc.do_new_address("zs").is_err());
+        assert!(lc.do_send(vec![("zs", 0, None)]).is_err());
 
         // Do a unlock, and make sure it all works now
         lc.wallet.write().unwrap().unlock("password".to_string()).unwrap();
         assert!(!lc.do_export(None).is_err());
         assert!(!lc.do_seed_phrase().is_err());
-        assert!(!lc.do_new_address("t").is_err());
-        assert!(!lc.do_new_address("z").is_err());
+        assert!(!lc.do_new_address("R").is_err());
+        assert!(!lc.do_new_address("zs").is_err());
     }
 
     #[test]
@@ -1104,10 +1100,10 @@ pub mod tests {
 
         // Add new z and t addresses
             
-        let taddr1 = lc.do_new_address("t").unwrap()[0].as_str().unwrap().to_string();
-        let taddr2 = lc.do_new_address("t").unwrap()[0].as_str().unwrap().to_string();        
-        let zaddr1 = lc.do_new_address("z").unwrap()[0].as_str().unwrap().to_string();
-        let zaddr2 = lc.do_new_address("z").unwrap()[0].as_str().unwrap().to_string();
+        let taddr1 = lc.do_new_address("R").unwrap()[0].as_str().unwrap().to_string();
+        let taddr2 = lc.do_new_address("R").unwrap()[0].as_str().unwrap().to_string();        
+        let zaddr1 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
+        let zaddr2 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
         
         let addresses = lc.do_address();
         assert_eq!(addresses["z_addresses"].len(), 3);
