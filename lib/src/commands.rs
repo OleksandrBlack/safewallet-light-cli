@@ -180,7 +180,7 @@ struct BalanceCommand {}
 impl Command for BalanceCommand {
     fn help(&self) -> String {
         let mut h = vec![];
-        h.push("Show the current ZEC balance in the wallet");
+        h.push("Show the current SAFE balance in the wallet");
         h.push("Usage:");
         h.push("balance");
         h.push("");
@@ -190,7 +190,7 @@ impl Command for BalanceCommand {
     }
 
     fn short_help(&self) -> String {
-        "Show the current ZEC balance in the wallet".to_string()
+        "Show the current SAFE balance in the wallet".to_string()
     }
 
     fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {
@@ -432,7 +432,7 @@ struct SendCommand {}
 impl Command for SendCommand {
     fn help(&self) -> String {
         let mut h = vec![];
-        h.push("Send ZEC to a given address");
+        h.push("Send SAFE to a given address");
         h.push("Usage:");
         h.push("send <address> <amount in zatoshis> \"optional_memo\"");
         h.push("OR");
@@ -446,7 +446,7 @@ impl Command for SendCommand {
     }
 
     fn short_help(&self) -> String {
-        "Send ZEC to the given address".to_string()
+        "Send SAFE to the given address".to_string()
     }
 
     fn exec(&self, args: &[&str], lightclient: &LightClient) -> String {
