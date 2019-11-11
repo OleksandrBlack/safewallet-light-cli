@@ -22,7 +22,10 @@ fn get_test_checkpoint(height: u64) ->  Option<(u64, &'static str, &'static str)
 
 fn get_main_checkpoint(height: u64) ->  Option<(u64, &'static str, &'static str)> {
     let checkpoints: Vec<(u64, &str, &str)> = vec![
-        (105942, "0000003285027e2e5804f65753f60cfdc7a32925c55f02ab9c3659be2b9e2522",
+        (901000, "0000033da1c814404f8626ceb4d3ba49abd3665299ad9f6b171f5ecb27d8ea6d",
+                 ""
+        ),
+        (904000, "0000103a9512a1805a9181e6da97671b3cf0622dd87956c8ce2bfb126e067de2",
                  ""
         )
     ];
@@ -78,13 +81,10 @@ pub mod tests {
     fn test_checkpoints() {
         assert_eq!(get_test_checkpoint(990000), None);
         assert_eq!(get_test_checkpoint(100000).unwrap().0, 100000);
-        assert_eq!(get_test_checkpoint(110000).unwrap().0, 100000);
-        assert_eq!(get_test_checkpoint(111000).unwrap().0, 1100000);
-        assert_eq!(get_test_checkpoint(112000).unwrap().0, 1100000);
 
-        assert_eq!(get_main_checkpoint(990000), None);
-        assert_eq!(get_main_checkpoint(110000).unwrap().0, 110000);
-        assert_eq!(get_main_checkpoint(111000).unwrap().0, 110000);
+        assert_eq!(get_main_checkpoint(900000), None);
+        assert_eq!(get_main_checkpoint(901000).unwrap().0, 901000);
+        assert_eq!(get_main_checkpoint(903000).unwrap().0, 901000);
     }
 
 }
