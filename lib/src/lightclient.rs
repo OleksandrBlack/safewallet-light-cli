@@ -27,7 +27,7 @@ use crate::ANCHOR_OFFSET;
 
 mod checkpoints;
 
-pub const DEFAULT_SERVER: &str = "https://lightwallet.safecoin.org:443";
+pub const DEFAULT_SERVER: &str = "https://lightd-main.safenodes.net:443/";
 pub const WALLET_NAME: &str    = "safewallet-light-wallet.dat";
 pub const LOGFILE_NAME: &str   = "safewallet-light-wallet.debug.log";
 
