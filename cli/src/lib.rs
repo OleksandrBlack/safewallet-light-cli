@@ -14,7 +14,7 @@ use log4rs::append::rolling_file::policy::compound::{
 };
 
 
-use zecwalletlitelib::{commands,
+use safewalletlitelib::{commands,
     lightclient::{LightClient, LightClientConfig},
 };
 

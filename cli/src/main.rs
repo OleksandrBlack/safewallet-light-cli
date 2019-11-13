@@ -1,4 +1,4 @@
-use zecwalletlitelib::lightclient::{self, LightClientConfig};
+use safewalletlitelib::lightclient::{self, LightClientConfig};
 use safewallet_cli::{configure_clapapp,
                     report_permission_error,
                     startup,
