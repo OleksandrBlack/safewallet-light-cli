@@ -39,6 +39,7 @@ use zcash_primitives::{
     primitives::{PaymentAddress},
 };
 
+
 use crate::lightclient::{LightClientConfig};
 
 mod data;
@@ -56,6 +57,7 @@ pub const MAX_REORG: usize = 100;
 fn now() -> f64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as f64
 }
+
 
 /// Sha256(Sha256(value))
 pub fn double_sha256(payload: &[u8]) -> Vec<u8> {
@@ -164,16 +166,6 @@ impl LightWallet {
         let address = extfvk.default_address().unwrap().1;
 
         (extsk, extfvk, address)
-    }
-
-    pub fn is_shielded_address(addr: &String, config: &LightClientConfig) -> bool {
-        match address::RecipientAddress::from_str(addr,
-                config.hrp_sapling_address(), 
-                config.base58_pubkey_address(), 
-                config.base58_script_address()) {
-            Some(address::RecipientAddress::Shielded(_)) => true,
-            _ => false,
-        }                                    
     }
 
     pub fn new(seed_phrase: Option<String>, config: &LightClientConfig, latest_block: u64) -> io::Result<Self> {
@@ -763,9 +755,9 @@ impl LightWallet {
     }
 
     pub fn zbalance(&self, addr: Option<String>) -> u64 {
-        self.txs.read().unwrap()
+        self.txs.read().unwrap() 
             .values()
-            .map(|tx| {
+            .map (|tx| {
                 tx.notes.iter()
                     .filter(|nd| {  // TODO, this whole section is shared with verified_balance. Refactor it. 
                         match addr.clone() {
@@ -781,6 +773,7 @@ impl LightWallet {
                     .sum::<u64>()
             })
             .sum::<u64>() as u64
+
     }
 
     // Get all (unspent) utxos. Unconfirmed spent utxos are included
@@ -832,12 +825,12 @@ impl LightWallet {
                             }
                         })
                         .map(|nd| if nd.spent.is_none() && nd.unconfirmed_spent.is_none() { nd.note.value } else { 0 })
-                        .sum::<u64>() as u64
+                        .sum::<u64>()
                 } else {
                     0
                 }
             })
-            .sum::<u64>()
+            .sum::<u64>() as u64
     }
 
     fn add_toutput_to_wtx(&self, height: i32, timestamp: u64, txid: &TxId, vout: &TxOut, n: u64) {
@@ -1478,7 +1471,7 @@ impl LightWallet {
         if selected_value < u64::from(target_value) {
             let e = format!(
                 "Insufficient verified funds (have {}, need {:?}). NOTE: funds need {} confirmations before they can be spent.",
-                selected_value, target_value, self.config.anchor_offset
+                selected_value, target_value, self.config.anchor_offset 
             );
             error!("{}", e);
             return Err(e);
@@ -1532,7 +1525,6 @@ impl LightWallet {
             }
         }
         
-
         println!("{}: Building transaction", now() - start_time);
         let (tx, _) = match builder.build(
             consensus_branch_id,
@@ -1582,14 +1574,7 @@ impl LightWallet {
                             value: *amt,
                             memo: match maybe_memo {
                                 None    => Memo::default(),
-                                Some(s) => {
-                                    // If the address is not a z-address, then drop the memo
-                                    if LightWallet::is_shielded_address(&addr.to_string(), &self.config) {
-                                            Memo::from_str(s).unwrap()
-                                    } else {
-                                        Memo::default()
-                                    }                                        
-                                }
+                                Some(s) => Memo::from_str(&s).unwrap(),
                             },
                         }
                     }).collect::<Vec<_>>();

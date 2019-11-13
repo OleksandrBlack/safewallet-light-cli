@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use json::{object};
 
 use crate::lightclient::LightClient;
-use crate::lightwallet::LightWallet;
 
 pub trait Command {
     fn help(&self) -> String;
@@ -455,7 +454,7 @@ impl Command for SendCommand {
         // 2 - A single argument in the form of a JSON string that is "[{address: address, value: value, memo: memo},...]"
 
         // 1 - Destination address. T or Z address
-        if args.len() < 1 || args.len() > 3 {
+         if args.len() < 1 || args.len() > 3 {
             return self.help();
         }
 
@@ -471,11 +470,11 @@ impl Command for SendCommand {
                 }
             };
 
-            if !json_args.is_array() {
+         if !json_args.is_array() {
                 return format!("Couldn't parse argument as array\n{}", self.help());
             }
 
-            let maybe_send_args = json_args.members().map( |j| {
+                    let maybe_send_args = json_args.members().map( |j| {
                 if !j.has_key("address") || !j.has_key("amount") {
                     Err(format!("Need 'address' and 'amount'\n"))
                 } else {
@@ -488,8 +487,6 @@ impl Command for SendCommand {
                 Err(s) => { return format!("Error: {}\n{}", s, self.help()); }
             }
         } else if args.len() == 2 || args.len() == 3 {
-            let address = args[0].to_string();
-
             // Make sure we can parse the amount
             let value = match args[1].parse::<u64>() {
                 Ok(amt) => amt,
@@ -498,12 +495,7 @@ impl Command for SendCommand {
                 }
             };
 
-            let memo = if args.len() == 3 { Some(args[2].to_string()) } else { None };
-
-            // Memo has to be None if not sending to a shileded address
-            if memo.is_some() && !LightWallet::is_shielded_address(&address, &lightclient.config) {
-                return format!("Can't send a memo to the non-shielded address {}", address);
-            }
+            let memo = if args.len() == 3 { Some(args[2].to_string()) } else {None};
             
             vec![(args[0].to_string(), value, memo)]
         } else {
