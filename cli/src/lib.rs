@@ -1,27 +1,17 @@
-use std::io::{self, Error, ErrorKind};
+use std::io::{self};
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender, Receiver};
 
-use log::{info, error, LevelFilter};
-use log4rs::append::rolling_file::RollingFileAppender;
-use log4rs::encode::pattern::PatternEncoder;
-use log4rs::config::{Appender, Config, Root};
-use log4rs::filter::threshold::ThresholdFilter;
-use log4rs::append::rolling_file::policy::compound::{
-    CompoundPolicy,
-    trigger::size::SizeTrigger,
-    roll::fixed_window::FixedWindowRoller,
-};
+use log::{info, error};
 
-
-use safewalletlitelib::{commands,
+use silentdragonlitelib::{commands,
     lightclient::{LightClient, LightClientConfig},
 };
 
 #[macro_export]
 macro_rules! configure_clapapp {
     ( $freshapp: expr ) => {
-    $freshapp.version("1.0.0")
+        $freshapp.version("1.0.0")
             .arg(Arg::with_name("dangerous")
                 .long("dangerous")
                 .help("Disable server TLS certificate verification. Use this if you're running a local lightwalletd with a self-signed certificate. WARNING: This is dangerous, don't use it with a server that is not your own.")
@@ -35,6 +25,10 @@ macro_rules! configure_clapapp {
                 .long("recover")
                 .help("Attempt to recover the seed from the wallet")
                 .takes_value(false))
+                .arg(Arg::with_name("password")
+                .long("password")
+                .help("When recovering seed, specify a password for the encrypted wallet")
+                .takes_value(true))
             .arg(Arg::with_name("seed")
                 .short("s")
                 .long("seed")
@@ -85,50 +79,13 @@ pub fn report_permission_error() {
     }
 }
 
-/// Build the Logging config
-pub fn get_log_config(config: &LightClientConfig) -> io::Result<Config> {
-    let window_size = 3; // log0, log1, log2
-    let fixed_window_roller =
-        FixedWindowRoller::builder().build("safewallet-light-wallet-log{}",window_size).unwrap();
-    let size_limit = 5 * 1024 * 1024; // 5MB as max log file size to roll
-    let size_trigger = SizeTrigger::new(size_limit);
-    let compound_policy = CompoundPolicy::new(Box::new(size_trigger),Box::new(fixed_window_roller));
-
-    Config::builder()
-        .appender(
-            Appender::builder()
-                .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
-                .build(
-                    "logfile",
-                    Box::new(
-                        RollingFileAppender::builder()
-                            .encoder(Box::new(PatternEncoder::new("{d} {l}::{m}{n}")))
-                            .build(config.get_log_path(), Box::new(compound_policy))?,
-                    ),
-                ),
-        )
-        .build(
-            Root::builder()
-                .appender("logfile")
-                .build(LevelFilter::Debug),
-        )
-        .map_err(|e|Error::new(ErrorKind::Other, format!("{}", e)))
-}
-
-
 pub fn startup(server: http::Uri, dangerous: bool, seed: Option<String>, birthday: u64, first_sync: bool, print_updates: bool)
         -> io::Result<(Sender<(String, Vec<String>)>, Receiver<String>)> {
     // Try to get the configuration
     let (config, latest_block_height) = LightClientConfig::create(server.clone(), dangerous)?;
 
-    // Configure logging first.
-    let log_config = get_log_config(&config)?;
-    log4rs::init_config(log_config).map_err(|e| {
-        std::io::Error::new(ErrorKind::Other, e)
-    })?;
-
     let lightclient = match seed {
-        Some(phrase) => Arc::new(LightClient::new_from_phrase(phrase, &config, birthday)?),
+        Some(phrase) => Arc::new(LightClient::new_from_phrase(phrase, &config, birthday,0, false)?),
         None => {
             if config.wallet_exists() {
                 Arc::new(LightClient::read_from_disk(&config)?)
@@ -138,6 +95,9 @@ pub fn startup(server: http::Uri, dangerous: bool, seed: Option<String>, birthda
             }
         }
     };
+
+    // Initialize logging
+    lightclient.init_logging()?;
 
     // Print startup Messages
     info!(""); // Blank line
@@ -186,12 +146,12 @@ pub fn start_interactive(command_tx: Sender<(String, Vec<String>)>, resp_rx: Rec
         }
     };
 
-    let info = &send_command("info".to_string(), vec![]);
-    let chain_name = json::parse(info).unwrap()["chain_name"].as_str().unwrap().to_string();
+    let info = send_command("info".to_string(), vec![]);
+    let chain_name = json::parse(&info).unwrap()["chain_name"].as_str().unwrap().to_string();
 
     loop {
         // Read the height first
-        let height = json::parse(&send_command("height".to_string(), vec![])).unwrap()["height"].as_i64().unwrap();
+        let height = json::parse(&send_command("height".to_string(), vec!["false".to_string()])).unwrap()["height"].as_i64().unwrap();
 
         let readline = rl.readline(&format!("({}) Block:{} (type 'help') >> ",
                                                     chain_name, height));
@@ -276,7 +236,7 @@ pub fn command_loop(lightclient: Arc<LightClient>) -> (Sender<(String, Vec<Strin
     (command_tx, resp_rx)
 }
 
-pub fn attempt_recover_seed() {
+pub fn attempt_recover_seed(password: Option<String>) {
     // Create a Light Client Config in an attempt to recover the file.
     let config = LightClientConfig {
         server: "0.0.0.0:0".parse().unwrap(),
@@ -288,7 +248,7 @@ pub fn attempt_recover_seed() {
         data_dir: None,
     };
 
-    match LightClient::attempt_recover_seed(&config) {
+    match LightClient::attempt_recover_seed(&config, password) {
         Ok(seed) => println!("Recovered seed: '{}'", seed),
         Err(e)   => eprintln!("Failed to recover seed. Error: {}", e)
     };
