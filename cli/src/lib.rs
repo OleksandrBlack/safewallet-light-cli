@@ -25,6 +25,10 @@ macro_rules! configure_clapapp {
                 .long("recover")
                 .help("Attempt to recover the seed from the wallet")
                 .takes_value(false))
+                .arg(Arg::with_name("password")
+                .long("password")
+                .help("When recovering seed, specify a password for the encrypted wallet")
+                .takes_value(true))
             .arg(Arg::with_name("seed")
                 .short("s")
                 .long("seed")
@@ -81,7 +85,7 @@ pub fn startup(server: http::Uri, dangerous: bool, seed: Option<String>, birthda
     let (config, latest_block_height) = LightClientConfig::create(server.clone(), dangerous)?;
 
     let lightclient = match seed {
-        Some(phrase) => Arc::new(LightClient::new_from_phrase(phrase, &config, birthday)?),
+        Some(phrase) => Arc::new(LightClient::new_from_phrase(phrase, &config, birthday,0, false)?),
         None => {
             if config.wallet_exists() {
                 Arc::new(LightClient::read_from_disk(&config)?)
@@ -142,8 +146,8 @@ pub fn start_interactive(command_tx: Sender<(String, Vec<String>)>, resp_rx: Rec
         }
     };
 
-    let info = &send_command("info".to_string(), vec![]);
-    let chain_name = json::parse(info).unwrap()["chain_name"].as_str().unwrap().to_string();
+    let info = send_command("info".to_string(), vec![]);
+    let chain_name = json::parse(&info).unwrap()["chain_name"].as_str().unwrap().to_string();
 
     loop {
         // Read the height first
@@ -232,7 +236,7 @@ pub fn command_loop(lightclient: Arc<LightClient>) -> (Sender<(String, Vec<Strin
     (command_tx, resp_rx)
 }
 
-pub fn attempt_recover_seed() {
+pub fn attempt_recover_seed(password: Option<String>) {
     // Create a Light Client Config in an attempt to recover the file.
     let config = LightClientConfig {
         server: "0.0.0.0:0".parse().unwrap(),
@@ -244,7 +248,7 @@ pub fn attempt_recover_seed() {
         data_dir: None,
     };
 
-    match LightClient::attempt_recover_seed(&config) {
+    match LightClient::attempt_recover_seed(&config, password) {
         Ok(seed) => println!("Recovered seed: '{}'", seed),
         Err(e)   => eprintln!("Failed to recover seed. Error: {}", e)
     };

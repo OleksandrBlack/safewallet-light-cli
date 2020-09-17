@@ -202,6 +202,27 @@ impl Command for InfoCommand {
     }
 }
 
+struct CoinsupplyCommand {}
+impl Command for CoinsupplyCommand {
+    fn help(&self) -> String {
+        let mut h = vec![];
+        h.push("Get info about the actual Coinsupply of Safecoin");
+        h.push("Usage:");
+        h.push("coinsupply");
+        h.push("");
+
+        h.join("\n")
+    }
+
+    fn short_help(&self) -> String {
+        "Get the Coinsupply info".to_string()
+    }
+
+    fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {        
+        lightclient.do_coinsupply()
+    }
+}
+
 struct BalanceCommand {}
 impl Command for BalanceCommand {
     fn help(&self) -> String {
@@ -458,11 +479,11 @@ struct SendCommand {}
 impl Command for SendCommand {
     fn help(&self) -> String {
         let mut h = vec![];
-        h.push("Send SAFE to a given address");
+        h.push("Send SAFE to a given address(es)");
         h.push("Usage:");
-        h.push("send <address> <amount in zatoshis> \"optional_memo\"");
+        h.push("send <address> <amount in puposhis> \"optional_memo\"");
         h.push("OR");
-        h.push("send '[{'address': <address>, 'amount': <amount in zatoshis>, 'memo': <optional memo>}, ...]'");
+        h.push("send '[{'address': <address>, 'amount': <amount in puposhis>, 'memo': <optional memo>}, ...]'");
         h.push("");
         h.push("NOTE: The fee required to send this transaction (currently SAFE 0.0001) is additionally detected from your balance.");
         h.push("Example:");
@@ -482,7 +503,7 @@ impl Command for SendCommand {
         // 2 - A single argument in the form of a JSON string that is "[{address: address, value: value, memo: memo},...]"
 
         // 1 - Destination address. T or Z address
-        if args.len() < 1 || args.len() > 3 {
+         if args.len() < 1 || args.len() > 3 {
             return self.help();
         }
 
@@ -498,11 +519,11 @@ impl Command for SendCommand {
                 }
             };
 
-            if !json_args.is_array() {
+         if !json_args.is_array() {
                 return format!("Couldn't parse argument as array\n{}", self.help());
             }
 
-            let maybe_send_args = json_args.members().map( |j| {
+                    let maybe_send_args = json_args.members().map( |j| {
                 if !j.has_key("address") || !j.has_key("amount") {
                     Err(format!("Need 'address' and 'amount'\n"))
                 } else {
@@ -701,6 +722,36 @@ impl Command for NewAddressCommand {
     }
 }
 
+struct NewSietchAddressCommand {}
+impl Command for NewSietchAddressCommand {
+    fn help(&self)  -> String {
+        let mut h = vec![];
+        h.push("New Sietch Address");
+        h.push("Usage:");
+        h.push("sietch [safe]");
+        h.push("");
+        h.push("Example:");
+        h.push("To create a new zdust:");
+        h.push("sietch safe");
+        h.join("\n")
+    }
+
+    fn short_help(&self) -> String {
+        "Create a sietch Address".to_string()
+    }
+
+    fn exec(&self, args: &[&str], lightclient: &LightClient) -> String {
+        if args.len() != 1 {
+            return format!("No address type specified\n{}", self.help());
+        }
+
+        match lightclient.do_new_sietchaddress(args[0]) {
+            Ok(j)  => j,
+            Err(e) => object!{ "error" => e }
+        }.pretty(2)
+    }
+}
+
 struct NotesCommand {}
 impl Command for NotesCommand {
     fn help(&self)  -> String {
@@ -804,12 +855,14 @@ pub fn get_commands() -> Box<HashMap<String, Box<dyn Command>>> {
     map.insert("height".to_string(),            Box::new(HeightCommand{}));
     map.insert("export".to_string(),            Box::new(ExportCommand{}));
     map.insert("info".to_string(),              Box::new(InfoCommand{}));
+    map.insert("coinsupply".to_string(),        Box::new(CoinsupplyCommand{}));
     map.insert("send".to_string(),              Box::new(SendCommand{}));
     map.insert("save".to_string(),              Box::new(SaveCommand{}));
     map.insert("quit".to_string(),              Box::new(QuitCommand{}));
     map.insert("list".to_string(),              Box::new(TransactionsCommand{}));
     map.insert("notes".to_string(),             Box::new(NotesCommand{}));
     map.insert("new".to_string(),               Box::new(NewAddressCommand{}));
+    map.insert("sietch".to_string(),            Box::new(NewSietchAddressCommand{}));
     map.insert("seed".to_string(),              Box::new(SeedCommand{}));
     map.insert("encrypt".to_string(),           Box::new(EncryptCommand{}));
     map.insert("decrypt".to_string(),           Box::new(DecryptCommand{}));

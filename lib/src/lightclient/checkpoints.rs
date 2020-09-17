@@ -1,3 +1,4 @@
+
 pub fn get_closest_checkpoint(chain_name: &str, height: u64) ->  Option<(u64, &'static str, &'static str)> {
     match chain_name {
         "test" => get_test_checkpoint(height),
@@ -94,15 +95,15 @@ pub mod tests {
 
     #[test]
     fn test_checkpoints() {
-        assert_eq!(get_test_checkpoint(500000), None);
-        assert_eq!(get_test_checkpoint(600000).unwrap().0, 600000);
-        assert_eq!(get_test_checkpoint(625000).unwrap().0, 600000);
-        assert_eq!(get_test_checkpoint(650000).unwrap().0, 650000);
-        assert_eq!(get_test_checkpoint(655000).unwrap().0, 650000);
+        assert_eq!(get_test_checkpoint(100000), None);
+        assert_eq!(get_test_checkpoint(120000).unwrap().0, 120000);
+        assert_eq!(get_test_checkpoint(125000).unwrap().0, 120000);
+        assert_eq!(get_test_checkpoint(157000).unwrap().0, 157000);
+        assert_eq!(get_test_checkpoint(175000).unwrap().0, 157000);
 
-        assert_eq!(get_main_checkpoint(500000), None);
-        assert_eq!(get_main_checkpoint(610000).unwrap().0, 610000);
-        assert_eq!(get_main_checkpoint(625000).unwrap().0, 610000);
+        assert_eq!(get_main_checkpoint(100000), None);
+        assert_eq!(get_main_checkpoint(170947).unwrap().0, 170947);
+        assert_eq!(get_main_checkpoint(170949).unwrap().0, 170947);
     }
 
 }
