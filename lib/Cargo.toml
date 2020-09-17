@@ -34,33 +34,33 @@ webpki-roots = "0.18.0"
 
 [dependencies.bellman]
 git = "https://github.com/OleksandrBlack/safecoin-librustzcash.git"
-rev = "cece730d83a0983275f93d34a4b822c8d3d4000a"
+rev = "9ceed894ddaee4271000dca2fac01bb9f1faea0f"
 default-features = false
 features = ["groth16"]
 
 [dependencies.pairing]
 git = "https://github.com/OleksandrBlack/safecoin-librustzcash.git"
-rev = "cece730d83a0983275f93d34a4b822c8d3d4000a"
+rev = "9ceed894ddaee4271000dca2fac01bb9f1faea0f"
 
 [dependencies.zcash_client_backend]
 git = "https://github.com/OleksandrBlack/safecoin-librustzcash.git"
-rev = "cece730d83a0983275f93d34a4b822c8d3d4000a"
+rev = "9ceed894ddaee4271000dca2fac01bb9f1faea0f"
 default-features = false
 
 [dependencies.zcash_primitives]
 git = "https://github.com/OleksandrBlack/safecoin-librustzcash.git"
-rev = "cece730d83a0983275f93d34a4b822c8d3d4000a"
+rev = "9ceed894ddaee4271000dca2fac01bb9f1faea0f"
 default-features = false
 features = ["transparent-inputs"]
 
 [dependencies.zcash_proofs]
 git = "https://github.com/OleksandrBlack/safecoin-librustzcash.git"
-rev = "cece730d83a0983275f93d34a4b822c8d3d4000a"
+rev = "9ceed894ddaee4271000dca2fac01bb9f1faea0f"
 default-features = false
 
 [dependencies.ff]
 git = "https://github.com/OleksandrBlack/safecoin-librustzcash.git"
-rev = "cece730d83a0983275f93d34a4b822c8d3d4000a"
+rev = "9ceed894ddaee4271000dca2fac01bb9f1faea0f"
 features = ["ff_derive"]
 
 [build-dependencies]
