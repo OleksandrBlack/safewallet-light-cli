@@ -4,7 +4,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 
 use log::{info, error};
 
-use safecoinwalletlitelib::{commands,
+use safewalletlitelib::{commands,
     lightclient::{LightClient, LightClientConfig},
 };
 
