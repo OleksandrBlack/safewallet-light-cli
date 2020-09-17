@@ -11,7 +11,6 @@ use log::{info, warn, error};
 
 use protobuf::parse_from_bytes;
 
-use libflate::gzip::{Decoder};
 use secp256k1::SecretKey;
 use bip39::{Mnemonic, Language};
 
@@ -38,11 +37,7 @@ use zcash_primitives::{
     zip32::{ExtendedFullViewingKey, ExtendedSpendingKey, ChildIndex},
     JUBJUB,
     primitives::{PaymentAddress},
-    
-    
 };
-
-
 
 
 use crate::lightclient::{LightClientConfig};
@@ -58,7 +53,6 @@ use data::{BlockData, WalletTx, Utxo, SaplingNoteData, SpendableNote, OutgoingTx
 use extended_key::{KeyIndex, ExtendedPrivKey};
 
 pub const MAX_REORG: usize = 100;
-pub const GAP_RULE_UNUSED_ADDRESSES: usize = 5;
 
 fn now() -> f64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as f64
@@ -116,7 +110,6 @@ pub struct LightWallet {
     extfvks: Arc<RwLock<Vec<ExtendedFullViewingKey>>>,
 
     pub zaddress: Arc<RwLock<Vec<PaymentAddress<Bls12>>>>,
-   
     
     // Transparent keys. If the wallet is locked, then the secret keys will be encrypted,
     // but the addresses will be present. 
@@ -140,7 +133,7 @@ pub struct LightWallet {
 
 impl LightWallet {
     pub fn serialized_version() -> u64 {
-        return 6;
+        return 4;
     }
 
     fn get_taddr_from_bip39seed(config: &LightClientConfig, bip39_seed: &[u8], pos: u32) -> SecretKey {
@@ -175,36 +168,7 @@ impl LightWallet {
         (extsk, extfvk, address)
     }
 
-    fn get_sietch_from_bip39seed( bip39_seed: &[u8]) ->
-    
-    
-    PaymentAddress<Bls12> {
-    assert_eq!(bip39_seed.len(), 64);
-
-    let zdustextsk: ExtendedSpendingKey = ExtendedSpendingKey::from_path(
-    &ExtendedSpendingKey::master(bip39_seed),
-    &[
-        ChildIndex::Hardened(32),
-         
-    ],
-    );
-    let zdustextfvk  = ExtendedFullViewingKey::from(&zdustextsk);
-    let zdustaddress = zdustextfvk.default_address().unwrap().1;
-
-    (zdustaddress)
-}
-
-    pub fn is_shielded_address(addr: &String, config: &LightClientConfig) -> bool {
-        match address::RecipientAddress::from_str(addr,
-                config.hrp_sapling_address(), 
-                config.base58_pubkey_address(), 
-                config.base58_script_address()) {
-            Some(address::RecipientAddress::Shielded(_)) => true,
-            _ => false,
-        }                                    
-    }
-
-    pub fn new(seed_phrase: Option<String>, config: &LightClientConfig, latest_block: u64, number: u64) -> io::Result<Self> {
+    pub fn new(seed_phrase: Option<String>, config: &LightClientConfig, latest_block: u64) -> io::Result<Self> {
         // This is the source entropy that corresponds to the 24-word seed phrase
         let mut seed_bytes = [0u8; 32];
 
@@ -213,7 +177,7 @@ impl LightWallet {
             let mut system_rng = OsRng;
             system_rng.fill(&mut seed_bytes);
         } else {
-            let phrase = match Mnemonic::from_phrase(seed_phrase.clone().unwrap(), Language::English) {
+            let phrase = match Mnemonic::from_phrase(seed_phrase.unwrap(), Language::English) {
                 Ok(p) => p,
                 Err(e) => {
                     let e = format!("Error parsing phrase: {}", e);
@@ -238,7 +202,7 @@ impl LightWallet {
         let (extsk, extfvk, address)
             = LightWallet::get_zaddr_from_bip39seed(&config, &bip39_seed.as_bytes(), 0);
 
-        let lw = LightWallet {
+        Ok(LightWallet {
             encrypted:   false,
             unlocked:    true,
             enc_seed:    [0u8; 48],
@@ -254,47 +218,25 @@ impl LightWallet {
             mempool_txs: Arc::new(RwLock::new(HashMap::new())),
             config:      config.clone(),
             birthday:    latest_block,
-        };
-
-        // If restoring from seed, make sure we are creating 50 addresses for users
-        if seed_phrase.is_some() {
-            for _i in 0..number {
-                lw.add_zaddr();
-            }
-            for _i in 0..5 {
-                lw.add_taddr();
-            }
-        }
-
-        Ok(lw)
+        })
     }
 
-    pub fn read<R: Read>(mut inp: R, config: &LightClientConfig) -> io::Result<Self> {
-        let version = inp.read_u64::<LittleEndian>()?;
+    pub fn read<R: Read>(mut reader: R, config: &LightClientConfig) -> io::Result<Self> {
+        let version = reader.read_u64::<LittleEndian>()?;
         if version > LightWallet::serialized_version() {
             let e = format!("Don't know how to read wallet version {}. Do you have the latest version?", version);
             error!("{}", e);
             return Err(io::Error::new(ErrorKind::InvalidData, e));
         }
-    println!("Reading wallet version {}", version);
-        info!("Reading wallet version {}", version);
 
-         // At version 5, we're writing the rest of the file as a compressed stream (gzip)
-         let mut reader: Box<dyn Read> = if version !=5 {
-            info!("Reading direct");
-            Box::new(inp)
-        } else {
-            info!("Reading libflat");
-            Box::new(Decoder::new(inp).unwrap())
-        };
+        info!("Reading wallet version {}", version);
 
         let encrypted = if version >= 4 {
             reader.read_u8()? > 0
         } else {
             false
         };
-     
-        info!("Wallet Encryption {:?}", encrypted);
+
         let mut enc_seed = [0u8; 48];
         if version >= 4 {
             reader.read_exact(&mut enc_seed)?;
@@ -434,7 +376,9 @@ impl LightWallet {
 
         // While writing the birthday, get it from the fn so we recalculate it properly
         // in case of rescans etc...
-        writer.write_u64::<LittleEndian>(self.get_birthday())
+        writer.write_u64::<LittleEndian>(self.get_birthday())?;
+
+        Ok(())
     }
 
     pub fn note_address(hrp: &str, note: &SaplingNoteData) -> Option<String> {
@@ -504,35 +448,6 @@ impl LightWallet {
         self.zaddress.write().unwrap().push(address);
 
         zaddr
-    }
-
-   // Add a new Sietch Addr. This will derive a new zdust address from manipluated seed
-    pub fn add_zaddrdust(&self) -> String {
-   
-        let mut seed_bytes = [0u8; 32];
-
-      
-         // Use random generator to create a new Sietch seed 
-       
-         let mut rng = rand::thread_rng();
-         let letter: String = rng.gen_range(b'A', b'Z').to_string();
-         let number: String = rng.gen_range(0, 999999).to_string();
-         let s = format!("{}{:06}", letter, number);
-         let my_string = String::from(s);
-         let dust: &str = &my_string; 
-
-
-         let mut system_rng = OsRng;
-         system_rng.fill(&mut seed_bytes);
-          
-        let bip39_seed = bip39::Seed::new(&Mnemonic::from_entropy(&seed_bytes, Language::English).unwrap(), dust);
-
-        let zdustaddress = LightWallet::get_sietch_from_bip39seed(&bip39_seed.as_bytes());
-
-        let zdust = encode_payment_address("zs", &zdustaddress);
-    
-
-        zdust
     }
 
     /// Add a new t address to the wallet. This will derive a new address from the seed
@@ -635,7 +550,7 @@ impl LightWallet {
             )
         } {
             (Some(min_height), Some(max_height)) => {
-                let target_height = max_height;
+                let target_height = max_height + 1;
 
                 // Select an anchor ANCHOR_OFFSET back from the target block,
                 // unless that would be before the earliest block we have.
@@ -957,54 +872,6 @@ impl LightWallet {
         }
     }
 
-    // If one of the last 'n' taddress was used, ensure we add the next HD taddress to the wallet. 
-    pub fn ensure_hd_taddresses(&self, address: &String) {        
-        let last_addresses = {
-            self.taddresses.read().unwrap().iter().rev().take(GAP_RULE_UNUSED_ADDRESSES).map(|s| s.clone()).collect::<Vec<String>>()
-        };
-        
-        match last_addresses.iter().position(|s| *s == *address) {
-            None => {                
-                return;
-            },
-            Some(pos) => {
-                info!("Adding {} new zaddrs", (GAP_RULE_UNUSED_ADDRESSES - pos));
-                // If it in the last unused, addresses, create that many more
-                for _ in 0..(GAP_RULE_UNUSED_ADDRESSES - pos) {
-                    // If the wallet is locked, this is a no-op. That is fine, since we really
-                    // need to only add new addresses when restoring a new wallet, when it will not be locked.
-                    // Also, if it is locked, the user can't create new addresses anyway. 
-                    self.add_taddr();
-                }
-            }
-        }
-    }
-
-    // If one of the last 'n' zaddress was used, ensure we add the next HD zaddress to the wallet
-    pub fn ensure_hd_zaddresses(&self, address: &String) {
-        let last_addresses = {
-            self.zaddress.read().unwrap().iter().rev().take(GAP_RULE_UNUSED_ADDRESSES)
-                .map(|s| encode_payment_address(self.config.hrp_sapling_address(), s))
-                .collect::<Vec<String>>()
-        };
-        
-        match last_addresses.iter().position(|s| *s == *address) {
-            None => {
-                return;
-            },
-            Some(pos) => {
-                info!("Adding {} new zaddrs", (GAP_RULE_UNUSED_ADDRESSES - pos));
-                // If it in the last unused, addresses, create that many more
-                for _ in 0..(GAP_RULE_UNUSED_ADDRESSES - pos) {
-                    // If the wallet is locked, this is a no-op. That is fine, since we really
-                    // need to only add new addresses when restoring a new wallet, when it will not be locked.
-                    // Also, if it is locked, the user can't create new addresses anyway. 
-                    self.add_zaddr();
-                }
-            }
-        }
-    }
-
     // Scan the full Tx and update memos for incoming shielded transactions.
     pub fn scan_full_tx(&self, tx: &Transaction, height: i32, datetime: u64) {
         let mut total_transparent_spend: u64 = 0;
@@ -1060,9 +927,6 @@ impl LightWallet {
                         if address == hash.to_base58check(&self.config.base58_pubkey_address(), &[]) {
                             // This is our address. Add this as an output to the txid
                             self.add_toutput_to_wtx(height, datetime, &tx.txid(), &vout, n as u64);
-
-                            // Ensure that we add any new HD addresses
-                            self.ensure_hd_taddresses(&address);
                         }
                     },
                     _ => {}
@@ -1128,24 +992,15 @@ impl LightWallet {
                     None => continue,
                 };
 
-                if memo.to_utf8().is_some() {
-                    info!("A sapling note was sent to wallet in {} that had a memo", tx.txid());
-
-                    // Do it in a short scope because of the write lock.   
+                {
+                    info!("A sapling note was spent in {}", tx.txid());
+                    // Update the WalletTx 
+                    // Do it in a short scope because of the write lock.
                     let mut txs = self.txs.write().unwrap();
-                       // Update memo if we have this Tx. 
-                       match txs.get_mut(&tx.txid())
-                       .and_then(|t| {
-                           t.notes.iter_mut().find(|nd| nd.note == note)
-                       }) {
-                        None => {
-                            info!("No txid matched for incoming sapling funds while updating memo"); 
-                            ()
-                        },
-                           Some(nd) => {
-                               nd.memo = Some(memo)
-                           }
-                       }
+                    txs.get_mut(&tx.txid()).unwrap()
+                        .notes.iter_mut()
+                        .find(|nd| nd.note == note).unwrap()
+                        .memo = Some(memo);
                 }
             }
 
@@ -1175,13 +1030,8 @@ impl LightWallet {
                             let address = encode_payment_address(self.config.hrp_sapling_address(), 
                                             &payment_address);
 
-                             // Check if this is change, and if it also doesn't have a memo, don't add 
-                            // to the outgoing metadata. 
-                            // If this is change (i.e., funds sent to ourself) AND has a memo, then
-                            // presumably the users is writing a memo to themself, so we will add it to 
-                            // the outgoing metadata, even though it might be confusing in the UI, but hopefully
-                            // the user can make sense of it. 
-                            if z_addresses.contains(&address) && memo.to_utf8().is_none() {
+                            // Check if this is a change address
+                            if z_addresses.contains(&address) {
                                 continue;
                             }
 
@@ -1192,7 +1042,7 @@ impl LightWallet {
 
                                 let mut txs = self.txs.write().unwrap();
                                 if txs.get(&tx.txid()).unwrap().outgoing_metadata.iter()
-                                        .find(|om| om.address == address && om.value == note.value  && om.memo == memo)
+                                        .find(|om| om.address == address && om.value == note.value)
                                         .is_some() {
                                     warn!("Duplicate outgoing metadata");
                                     continue;
@@ -1446,15 +1296,9 @@ impl LightWallet {
             // Save notes.
             for output in tx.shielded_outputs
             {
-                let new_note = SaplingNoteData::new(&self.extfvks.read().unwrap()[output.account], output);
-                match LightWallet::note_address(self.config.hrp_sapling_address(), &new_note) {
-                    Some(a) => {
-                        info!("Received sapling output to {}", a);
-                        self.ensure_hd_zaddresses(&a);
-                    },
-                    None => {}
-                }
+                info!("Received sapling output");
 
+                let new_note = SaplingNoteData::new(&self.extfvks.read().unwrap()[output.account], output);
                 match tx_entry.notes.iter().find(|nd| nd.nullifier == new_note.nullifier) {
                     None => tx_entry.notes.push(new_note),
                     Some(_) => warn!("Tried to insert duplicate note for Tx {}", tx.txid)
@@ -1508,20 +1352,20 @@ impl LightWallet {
             return Err("Need at least one destination address".to_string());
         }
 
-        // Check for duplicates in the to list - We need that for HushChat
-       // if tos.len() > 1 {
-       //     let mut to_addresses = tos.iter().map(|t| t.0.to_string()).collect::<Vec<_>>();
-       //     to_addresses.sort();
-       //     for i in 0..to_addresses.len()-1 {
-       //         if to_addresses[i] == to_addresses[i+1] {
-       //             return Err(format!("To address {} is duplicated", to_addresses[i]));
-       //         }
-       //     }
-       // }
+        // Check for duplicates in the to list
+        if tos.len() > 1 {
+            let mut to_addresses = tos.iter().map(|t| t.0.to_string()).collect::<Vec<_>>();
+            to_addresses.sort();
+            for i in 0..to_addresses.len()-1 {
+                if to_addresses[i] == to_addresses[i+1] {
+                    return Err(format!("To address {} is duplicated", to_addresses[i]));
+                }
+            }
+        }
 
         let total_value = tos.iter().map(|to| to.1).sum::<u64>() as u64;
         println!(
-            "0: Creating transaction sending {} puposhis to {} addresses",
+            "0: Creating transaction sending {} ztoshis to {} addresses",
             total_value, tos.len()
         );
 
@@ -1627,7 +1471,7 @@ impl LightWallet {
         if selected_value < u64::from(target_value) {
             let e = format!(
                 "Insufficient verified funds (have {}, need {:?}). NOTE: funds need {} confirmations before they can be spent.",
-                selected_value, target_value, self.config.anchor_offset
+                selected_value, target_value, self.config.anchor_offset 
             );
             error!("{}", e);
             return Err(e);
@@ -1663,17 +1507,7 @@ impl LightWallet {
 
         for (to, value, memo) in recepients {
             // Compute memo if it exists
-            let encoded_memo = match memo {
-                None => None,
-                Some(s) => match Memo::from_str(&s) {
-                    None => {
-                        let e = format!("Error creating output. Memo {:?} is too long", s);
-                        error!("{}", e);
-                        return Err(e);
-                    },
-                    Some(m) => Some(m)
-                }
-            };
+            let encoded_memo = memo.map(|s| Memo::from_str(&s).unwrap());
             
             println!("{}: Adding output", now() - start_time);
 
@@ -1740,14 +1574,7 @@ impl LightWallet {
                             value: *amt,
                             memo: match maybe_memo {
                                 None    => Memo::default(),
-                                Some(s) => {
-                                    // If the address is not a z-address, then drop the memo
-                                    if LightWallet::is_shielded_address(&addr.to_string(), &self.config) {
-                                            Memo::from_str(s).unwrap()
-                                    } else {
-                                        Memo::default()
-                                    }                                        
-                                }
+                                Some(s) => Memo::from_str(&s).unwrap(),
                             },
                         }
                     }).collect::<Vec<_>>();

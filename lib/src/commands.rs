@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use json::{object};
 
 use crate::lightclient::LightClient;
-use crate::lightwallet::LightWallet;
 
 pub trait Command {
     fn help(&self) -> String;
@@ -111,32 +110,6 @@ impl Command for RescanCommand {
 }
 
 
-struct ClearCommand {}
-impl Command for ClearCommand {
-    fn help(&self) -> String {
-        let mut h = vec![];
-        h.push("Clear the wallet state, rolling back the wallet to an empty state.");
-        h.push("Usage:");
-        h.push("clear");
-        h.push("");
-        h.push("This command will clear all notes, utxos and transactions from the wallet, setting up the wallet to be synced from scratch.");
-        
-        h.join("\n")
-    }
-
-    fn short_help(&self) -> String {
-        "Clear the wallet state, rolling back the wallet to an empty state.".to_string()
-    }
-
-    fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {
-       lightclient.clear_state();
-       
-       let result = object!{ "result" => "success" };
-       
-       result.pretty(2)
-    }
-}
-
 struct HelpCommand {}
 impl Command for HelpCommand {
     fn help(&self) -> String {
@@ -199,27 +172,6 @@ impl Command for InfoCommand {
 
     fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {        
         lightclient.do_info()
-    }
-}
-
-struct CoinsupplyCommand {}
-impl Command for CoinsupplyCommand {
-    fn help(&self) -> String {
-        let mut h = vec![];
-        h.push("Get info about the actual Coinsupply of Safecoin");
-        h.push("Usage:");
-        h.push("coinsupply");
-        h.push("");
-
-        h.join("\n")
-    }
-
-    fn short_help(&self) -> String {
-        "Get the Coinsupply info".to_string()
-    }
-
-    fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {        
-        lightclient.do_coinsupply()
     }
 }
 
@@ -479,13 +431,12 @@ struct SendCommand {}
 impl Command for SendCommand {
     fn help(&self) -> String {
         let mut h = vec![];
-        h.push("Send SAFE to a given address(es)");
+        h.push("Send SAFE to a given address");
         h.push("Usage:");
-        h.push("send <address> <amount in puposhis> \"optional_memo\"");
+        h.push("send <address> <amount in zatoshis> \"optional_memo\"");
         h.push("OR");
         h.push("send '[{'address': <address>, 'amount': <amount in zatoshis>, 'memo': <optional memo>}, ...]'");
         h.push("");
-        h.push("NOTE: The fee required to send this transaction (currently SAFE 0.0001) is additionally detected from your balance.");
         h.push("Example:");
         h.push("send ztestsapling1x65nq4dgp0qfywgxcwk9n0fvm4fysmapgr2q00p85ju252h6l7mmxu2jg9cqqhtvzd69jwhgv8d 200000 \"Hello from the command line\"");
         h.push("");
@@ -536,8 +487,6 @@ impl Command for SendCommand {
                 Err(s) => { return format!("Error: {}\n{}", s, self.help()); }
             }
         } else if args.len() == 2 || args.len() == 3 {
-            let address = args[0].to_string();
-
             // Make sure we can parse the amount
             let value = match args[1].parse::<u64>() {
                 Ok(amt) => amt,
@@ -546,12 +495,7 @@ impl Command for SendCommand {
                 }
             };
 
-            let memo = if args.len() == 3 { Some(args[2].to_string()) } else { None };
-
-            // Memo has to be None if not sending to a shileded address
-            if memo.is_some() && !LightWallet::is_shielded_address(&address, &lightclient.config) {
-                return format!("Can't send a memo to the non-shielded address {}", address);
-            }
+            let memo = if args.len() == 3 { Some(args[2].to_string()) } else {None};
             
             vec![(args[0].to_string(), value, memo)]
         } else {
@@ -662,11 +606,10 @@ struct HeightCommand {}
 impl Command for HeightCommand {
     fn help(&self)  -> String {
         let mut h = vec![];
-        h.push("Get the latest block height that the wallet is at.");
+        h.push("Get the latest block height that the wallet is at");
         h.push("Usage:");
-        h.push("height [do_sync = true | false]");
+        h.push("height");
         h.push("");
-        h.push("Pass 'true' (default) to sync to the server to get the latest block height. Pass 'false' to get the latest height in the wallet without checking with the server.");
 
         h.join("\n")
     }
@@ -675,19 +618,11 @@ impl Command for HeightCommand {
         "Get the latest block height that the wallet is at".to_string()
     }
 
-    fn exec(&self, args: &[&str], lightclient: &LightClient) -> String {
-        if args.len() > 1 {
-            return format!("Didn't understand arguments\n{}", self.help());
-        }
-
-        if args.len() == 0 || (args.len() == 1 && args[0].trim() == "true") {
-            match lightclient.do_sync(true) {
-                Ok(_) => format!("{}", object! { "height" => lightclient.last_scanned_height()}.pretty(2)),
-                Err(e) => e
-            }
-        } else {
-            format!("{}", object! { "height" => lightclient.last_scanned_height()}.pretty(2))
-        }
+    fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {
+        format!("{}",
+            object! {
+                "height" => lightclient.last_scanned_height()
+            }.pretty(2))
     }
 }
 
@@ -716,36 +651,6 @@ impl Command for NewAddressCommand {
         }
 
         match lightclient.do_new_address(args[0]) {
-            Ok(j)  => j,
-            Err(e) => object!{ "error" => e }
-        }.pretty(2)
-    }
-}
-
-struct NewSietchAddressCommand {}
-impl Command for NewSietchAddressCommand {
-    fn help(&self)  -> String {
-        let mut h = vec![];
-        h.push("New Sietch Address");
-        h.push("Usage:");
-        h.push("sietch [zs]");
-        h.push("");
-        h.push("Example:");
-        h.push("To create a new zdust:");
-        h.push("sietch zs");
-        h.join("\n")
-    }
-
-    fn short_help(&self) -> String {
-        "Create a sietch Address".to_string()
-    }
-
-    fn exec(&self, args: &[&str], lightclient: &LightClient) -> String {
-        if args.len() != 1 {
-            return format!("No address type specified\n{}", self.help());
-        }
-
-        match lightclient.do_new_sietchaddress(args[0]) {
             Ok(j)  => j,
             Err(e) => object!{ "error" => e }
         }.pretty(2)
@@ -848,21 +753,18 @@ pub fn get_commands() -> Box<HashMap<String, Box<dyn Command>>> {
     map.insert("syncstatus".to_string(),        Box::new(SyncStatusCommand{}));
     map.insert("encryptionstatus".to_string(),  Box::new(EncryptionStatusCommand{}));
     map.insert("rescan".to_string(),            Box::new(RescanCommand{}));
-    map.insert("clear".to_string(),             Box::new(ClearCommand{}));
     map.insert("help".to_string(),              Box::new(HelpCommand{}));
     map.insert("balance".to_string(),           Box::new(BalanceCommand{}));
     map.insert("addresses".to_string(),         Box::new(AddressCommand{}));
     map.insert("height".to_string(),            Box::new(HeightCommand{}));
     map.insert("export".to_string(),            Box::new(ExportCommand{}));
     map.insert("info".to_string(),              Box::new(InfoCommand{}));
-    map.insert("coinsupply".to_string(),        Box::new(CoinsupplyCommand{}));
     map.insert("send".to_string(),              Box::new(SendCommand{}));
     map.insert("save".to_string(),              Box::new(SaveCommand{}));
     map.insert("quit".to_string(),              Box::new(QuitCommand{}));
     map.insert("list".to_string(),              Box::new(TransactionsCommand{}));
     map.insert("notes".to_string(),             Box::new(NotesCommand{}));
     map.insert("new".to_string(),               Box::new(NewAddressCommand{}));
-    map.insert("sietch".to_string(),            Box::new(NewSietchAddressCommand{}));
     map.insert("seed".to_string(),              Box::new(SeedCommand{}));
     map.insert("encrypt".to_string(),           Box::new(EncryptCommand{}));
     map.insert("decrypt".to_string(),           Box::new(DecryptCommand{}));

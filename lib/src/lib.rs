@@ -11,13 +11,9 @@ pub mod commands;
 #[folder = "zcash-params/"]
 pub struct SaplingParams;
 
-#[derive(RustEmbed)]
-#[folder = "res/"]
-pub struct PubCertificate;
+pub const ANCHOR_OFFSET: u32 = 2;
 
-
-pub const ANCHOR_OFFSET: u32 = 0;
 
 pub mod grpc_client {
-    tonic::include_proto!("cash.z.wallet.sdk.rpc");
+    include!(concat!(env!("OUT_DIR"), "/cash.z.wallet.sdk.rpc.rs"));
 }
