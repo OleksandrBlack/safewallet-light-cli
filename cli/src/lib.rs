@@ -4,7 +4,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 
 use log::{info, error};
 
-use safewalletlitelib::{commands,
+use silentdragonlitelib::{commands,
     lightclient::{LightClient, LightClientConfig},
 };
 
