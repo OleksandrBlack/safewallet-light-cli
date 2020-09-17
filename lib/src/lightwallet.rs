@@ -39,7 +39,6 @@ use zcash_primitives::{
     primitives::{PaymentAddress},
 };
 
-
 use crate::lightclient::{LightClientConfig};
 
 mod data;
@@ -53,11 +52,11 @@ use data::{BlockData, WalletTx, Utxo, SaplingNoteData, SpendableNote, OutgoingTx
 use extended_key::{KeyIndex, ExtendedPrivKey};
 
 pub const MAX_REORG: usize = 100;
+pub const GAP_RULE_UNUSED_ADDRESSES: usize = 5;
 
 fn now() -> f64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as f64
 }
-
 
 /// Sha256(Sha256(value))
 pub fn double_sha256(payload: &[u8]) -> Vec<u8> {
@@ -166,6 +165,16 @@ impl LightWallet {
         let address = extfvk.default_address().unwrap().1;
 
         (extsk, extfvk, address)
+    }
+
+    pub fn is_shielded_address(addr: &String, config: &LightClientConfig) -> bool {
+        match address::RecipientAddress::from_str(addr,
+                config.hrp_sapling_address(), 
+                config.base58_pubkey_address(), 
+                config.base58_script_address()) {
+            Some(address::RecipientAddress::Shielded(_)) => true,
+            _ => false,
+        }                                    
     }
 
     pub fn new(seed_phrase: Option<String>, config: &LightClientConfig, latest_block: u64) -> io::Result<Self> {
@@ -575,7 +584,7 @@ impl LightWallet {
         }
     }
 
-    pub fn address_from_prefix_sk(prefix: &[u8; 1], sk: &secp256k1::SecretKey) -> String {
+    pub fn address_from_prefix_sk(prefix: &[u8; 2], sk: &secp256k1::SecretKey) -> String {
         let secp = secp256k1::Secp256k1::new();
         let pk = secp256k1::PublicKey::from_secret_key(&secp, &sk);
 
@@ -755,9 +764,9 @@ impl LightWallet {
     }
 
     pub fn zbalance(&self, addr: Option<String>) -> u64 {
-        self.txs.read().unwrap() 
+        self.txs.read().unwrap()
             .values()
-            .map (|tx| {
+            .map(|tx| {
                 tx.notes.iter()
                     .filter(|nd| {  // TODO, this whole section is shared with verified_balance. Refactor it. 
                         match addr.clone() {
@@ -772,8 +781,7 @@ impl LightWallet {
                     .map(|nd| if nd.spent.is_none() { nd.note.value } else { 0 })
                     .sum::<u64>()
             })
-            .sum::<u64>() as u64
-
+            .sum::<u64>()
     }
 
     // Get all (unspent) utxos. Unconfirmed spent utxos are included
@@ -797,12 +805,12 @@ impl LightWallet {
                 }
             })
             .map(|utxo| utxo.value )
-            .sum::<u64>() as u64
+            .sum::<u64>()
     }
 
     pub fn verified_zbalance(&self, addr: Option<String>) -> u64 {
         let anchor_height = match self.get_target_height_and_anchor_offset() {
-            Some((height, anchor_offset)) => height - anchor_offset as u32 ,
+            Some((height, anchor_offset)) => height - anchor_offset as u32 - 1,
             None => return 0,
         };
 
@@ -830,7 +838,7 @@ impl LightWallet {
                     0
                 }
             })
-            .sum::<u64>() as u64
+            .sum::<u64>()
     }
 
     fn add_toutput_to_wtx(&self, height: i32, timestamp: u64, txid: &TxId, vout: &TxOut, n: u64) {
@@ -867,6 +875,54 @@ impl LightWallet {
                         spent: None,
                         unconfirmed_spent: None,
                     });
+                }
+            }
+        }
+    }
+
+    // If one of the last 'n' taddress was used, ensure we add the next HD taddress to the wallet. 
+    pub fn ensure_hd_taddresses(&self, address: &String) {        
+        let last_addresses = {
+            self.taddresses.read().unwrap().iter().rev().take(GAP_RULE_UNUSED_ADDRESSES).map(|s| s.clone()).collect::<Vec<String>>()
+        };
+        
+        match last_addresses.iter().position(|s| *s == *address) {
+            None => {                
+                return;
+            },
+            Some(pos) => {
+                info!("Adding {} new zaddrs", (GAP_RULE_UNUSED_ADDRESSES - pos));
+                // If it in the last unused, addresses, create that many more
+                for _ in 0..(GAP_RULE_UNUSED_ADDRESSES - pos) {
+                    // If the wallet is locked, this is a no-op. That is fine, since we really
+                    // need to only add new addresses when restoring a new wallet, when it will not be locked.
+                    // Also, if it is locked, the user can't create new addresses anyway. 
+                    self.add_taddr();
+                }
+            }
+        }
+    }
+
+    // If one of the last 'n' zaddress was used, ensure we add the next HD zaddress to the wallet
+    pub fn ensure_hd_zaddresses(&self, address: &String) {
+        let last_addresses = {
+            self.zaddress.read().unwrap().iter().rev().take(GAP_RULE_UNUSED_ADDRESSES)
+                .map(|s| encode_payment_address(self.config.hrp_sapling_address(), s))
+                .collect::<Vec<String>>()
+        };
+        
+        match last_addresses.iter().position(|s| *s == *address) {
+            None => {
+                return;
+            },
+            Some(pos) => {
+                info!("Adding {} new zaddrs", (GAP_RULE_UNUSED_ADDRESSES - pos));
+                // If it in the last unused, addresses, create that many more
+                for _ in 0..(GAP_RULE_UNUSED_ADDRESSES - pos) {
+                    // If the wallet is locked, this is a no-op. That is fine, since we really
+                    // need to only add new addresses when restoring a new wallet, when it will not be locked.
+                    // Also, if it is locked, the user can't create new addresses anyway. 
+                    self.add_zaddr();
                 }
             }
         }
@@ -927,6 +983,9 @@ impl LightWallet {
                         if address == hash.to_base58check(&self.config.base58_pubkey_address(), &[]) {
                             // This is our address. Add this as an output to the txid
                             self.add_toutput_to_wtx(height, datetime, &tx.txid(), &vout, n as u64);
+
+                            // Ensure that we add any new HD addresses
+                            self.ensure_hd_taddresses(&address);
                         }
                     },
                     _ => {}
@@ -1296,9 +1355,15 @@ impl LightWallet {
             // Save notes.
             for output in tx.shielded_outputs
             {
-                info!("Received sapling output");
-
                 let new_note = SaplingNoteData::new(&self.extfvks.read().unwrap()[output.account], output);
+                match LightWallet::note_address(self.config.hrp_sapling_address(), &new_note) {
+                    Some(a) => {
+                        info!("Received sapling output to {}", a);
+                        self.ensure_hd_zaddresses(&a);
+                    },
+                    None => {}
+                }
+
                 match tx_entry.notes.iter().find(|nd| nd.nullifier == new_note.nullifier) {
                     None => tx_entry.notes.push(new_note),
                     Some(_) => warn!("Tried to insert duplicate note for Tx {}", tx.txid)
@@ -1363,7 +1428,7 @@ impl LightWallet {
             }
         }
 
-        let total_value = tos.iter().map(|to| to.1).sum::<u64>() as u64;
+        let total_value = tos.iter().map(|to| to.1).sum::<u64>();
         println!(
             "0: Creating transaction sending {} ztoshis to {} addresses",
             total_value, tos.len()
@@ -1426,6 +1491,7 @@ impl LightWallet {
         // SafeWallet will lazily consolidate all t address funds into your shielded addresses. 
         // Specifically, if you send an outgoing transaction that is sent to a shielded address,
         // SafeWallet will add all your t-address funds into that transaction, and send them to your shielded
+        // ZecWallet will add all your t-address funds into that transaction, and send them to your shielded
         // address as change.
         let tinputs: Vec<_> = self.get_utxos().iter()
                                 .filter(|utxo| utxo.unconfirmed_spent.is_none()) // Remove any unconfirmed spends
@@ -1471,7 +1537,7 @@ impl LightWallet {
         if selected_value < u64::from(target_value) {
             let e = format!(
                 "Insufficient verified funds (have {}, need {:?}). NOTE: funds need {} confirmations before they can be spent.",
-                selected_value, target_value, self.config.anchor_offset 
+                selected_value, target_value, self.config.anchor_offset + 1
             );
             error!("{}", e);
             return Err(e);
@@ -1525,6 +1591,7 @@ impl LightWallet {
             }
         }
         
+
         println!("{}: Building transaction", now() - start_time);
         let (tx, _) = match builder.build(
             consensus_branch_id,
@@ -1574,7 +1641,14 @@ impl LightWallet {
                             value: *amt,
                             memo: match maybe_memo {
                                 None    => Memo::default(),
-                                Some(s) => Memo::from_str(&s).unwrap(),
+                                Some(s) => {
+                                    // If the address is not a z-address, then drop the memo
+                                    if LightWallet::is_shielded_address(&addr.to_string(), &self.config) {
+                                            Memo::from_str(s).unwrap()
+                                    } else {
+                                        Memo::default()
+                                    }                                        
+                                }
                             },
                         }
                     }).collect::<Vec<_>>();

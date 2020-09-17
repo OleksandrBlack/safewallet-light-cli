@@ -1,6 +1,5 @@
 use crate::lightwallet::LightWallet;
 
-use log::{info, warn, error};
 use rand::{rngs::OsRng, seq::SliceRandom};
 
 use std::sync::{Arc, RwLock, Mutex};
@@ -20,6 +19,17 @@ use zcash_client_backend::{
     constants::testnet, constants::mainnet, constants::regtest, encoding::encode_payment_address,
 };
 
+use log::{info, warn, error, LevelFilter};
+use log4rs::append::rolling_file::RollingFileAppender;
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::config::{Appender, Config, Root};
+use log4rs::filter::threshold::ThresholdFilter;
+use log4rs::append::rolling_file::policy::compound::{
+    CompoundPolicy,
+    trigger::size::SizeTrigger,
+    roll::fixed_window::FixedWindowRoller,
+};
+
 use crate::grpc_client::{BlockId};
 use crate::grpcconnector::{self, *};
 use crate::SaplingParams;
@@ -27,9 +37,9 @@ use crate::ANCHOR_OFFSET;
 
 mod checkpoints;
 
-pub const DEFAULT_SERVER: &str = "https://lightd-main.safenodes.net:443/";
-pub const WALLET_NAME: &str    = "safewallet-light-wallet.dat";
-pub const LOGFILE_NAME: &str   = "safewallet-light-wallet.debug.log";
+pub const DEFAULT_SERVER: &str = "https://lightwalletd.zecwallet.co:1443";
+pub const WALLET_NAME: &str    = "zecwallet-light-wallet.dat";
+pub const LOGFILE_NAME: &str   = "zecwallet-light-wallet.debug.log";
 
 #[derive(Clone, Debug)]
 pub struct WalletStatus {
@@ -77,13 +87,13 @@ impl LightClientConfig {
     pub fn create(server: http::Uri, dangerous: bool) -> io::Result<(LightClientConfig, u64)> {
         use std::net::ToSocketAddrs;
         // Test for a connection first
-        format!("{}:{}", server.host().unwrap(), server.port_part().unwrap())
+        format!("{}:{}", server.host().unwrap(), server.port().unwrap())
             .to_socket_addrs()?
             .next()
             .ok_or(std::io::Error::new(ErrorKind::ConnectionRefused, "Couldn't resolve server!"))?;
 
         // Do a getinfo first, before opening the wallet
-        let info = grpcconnector::get_info(server.clone(), dangerous)
+        let info = grpcconnector::get_info(&server, dangerous)
             .map_err(|e| std::io::Error::new(ErrorKind::ConnectionRefused, e))?;
 
         // Create a Light Client Config
@@ -98,6 +108,37 @@ impl LightClientConfig {
         };
 
         Ok((config, info.block_height))
+    }
+
+
+    /// Build the Logging config
+    pub fn get_log_config(&self) -> io::Result<Config> {
+        let window_size = 3; // log0, log1, log2
+        let fixed_window_roller =
+            FixedWindowRoller::builder().build("safewallet-light-wallet-log{}",window_size).unwrap();
+        let size_limit = 5 * 1024 * 1024; // 5MB as max log file size to roll
+        let size_trigger = SizeTrigger::new(size_limit);
+        let compound_policy = CompoundPolicy::new(Box::new(size_trigger),Box::new(fixed_window_roller));
+
+        Config::builder()
+            .appender(
+                Appender::builder()
+                    .filter(Box::new(ThresholdFilter::new(LevelFilter::Info)))
+                    .build(
+                        "logfile",
+                        Box::new(
+                            RollingFileAppender::builder()
+                                .encoder(Box::new(PatternEncoder::new("{d} {l}::{m}{n}")))
+                                .build(self.get_log_path(), Box::new(compound_policy))?,
+                        ),
+                    ),
+            )
+            .build(
+                Root::builder()
+                    .appender("logfile")
+                    .build(LevelFilter::Debug),
+            )
+            .map_err(|e|Error::new(ErrorKind::Other, format!("{}", e)))
     }
 
     pub fn get_zcash_data_path(&self) -> Box<Path> {
@@ -158,7 +199,7 @@ impl LightClientConfig {
             Some(s) => {
                 let mut s = if s.starts_with("http") {s} else { "http://".to_string() + &s};
                 let uri: http::Uri = s.parse().unwrap();
-                if uri.port_part().is_none() {
+                if uri.port().is_none() {
                     s = s + ":443";
                 }
                 s
@@ -194,17 +235,21 @@ impl LightClientConfig {
         }
     }
 
-    pub fn base58_pubkey_address(&self) -> [u8; 1] {
+    pub fn base58_pubkey_address(&self) -> [u8; 2] {
         match &self.chain_name[..] {
             "main"    => mainnet::B58_PUBKEY_ADDRESS_PREFIX,
+            "test"    => testnet::B58_PUBKEY_ADDRESS_PREFIX,
+            "regtest" => regtest::B58_PUBKEY_ADDRESS_PREFIX,
             c         => panic!("Unknown chain {}", c)
         }
     }
 
 
-    pub fn base58_script_address(&self) -> [u8; 1] {
+    pub fn base58_script_address(&self) -> [u8; 2] {
         match &self.chain_name[..] {
             "main"    => mainnet::B58_SCRIPT_ADDRESS_PREFIX,
+            "test"    => testnet::B58_SCRIPT_ADDRESS_PREFIX,
+            "regtest" => regtest::B58_SCRIPT_ADDRESS_PREFIX,
             c         => panic!("Unknown chain {}", c)
         }
     }
@@ -349,12 +394,22 @@ impl LightClient {
         info!("Created LightClient to {}", &config.server);
 
         if crate::lightwallet::bugs::BugBip39Derivation::has_bug(&lc) {
-            let m = format!("WARNING!!!\nYour wallet has a bip39derivation bug that's showing incorrect addresses.\nPlease run 'fixbip39bug' to automatically fix the address derivation in your wallet!\nPlease see: https://github.com/OleksandrBlack/safewallet-light-cli/blob/master/bip39bug.md");
+            let m = format!("WARNING!!!\nYour wallet has a bip39derivation bug that's showing incorrect addresses.\nPlease run 'fixbip39bug' to automatically fix the address derivation in your wallet!\nPlease see: https://github.com/adityapk00/zecwallet-light-cli/blob/master/bip39bug.md");
              info!("{}", m);
              println!("{}", m);
         }
 
         Ok(lc)
+    }
+
+    pub fn init_logging(&self) -> io::Result<()> {
+        // Configure logging first.
+        let log_config = self.config.get_log_config()?;
+        log4rs::init_config(log_config).map_err(|e| {
+            std::io::Error::new(ErrorKind::Other, e)
+        })?;
+
+        Ok(())
     }
 
     pub fn attempt_recover_seed(config: &LightClientConfig) -> Result<String, String> {
@@ -528,7 +583,7 @@ impl LightClient {
     }
 
     pub fn do_info(&self) -> String {
-        match get_info(self.get_server_uri(), self.config.no_cert_verification) {
+        match get_info(&self.get_server_uri(), self.config.no_cert_verification) {
             Ok(i) => {
                 let o = object!{
                     "version" => i.version,
@@ -665,7 +720,7 @@ impl LightClient {
             .flat_map(| (_k, v) | {
                 let mut txns: Vec<JsonValue> = vec![];
 
-                if v.total_shielded_value_spent > 0 {
+                if v.total_shielded_value_spent + v.total_transparent_value_spent > 0 {
                     // If money was spent, create a transaction. For this, we'll subtract
                     // all the change notes. TODO: Add transparent change here to subtract it also
                     let total_change: u64 = v.notes.iter()
@@ -772,31 +827,47 @@ impl LightClient {
             return Err("Wallet is locked".to_string());
         }
 
-        let wallet = self.wallet.write().unwrap();
+        let new_address = {
+            let wallet = self.wallet.write().unwrap();
 
-        let new_address = match addr_type {
-            "zs" => wallet.add_zaddr(),
-            "R" => wallet.add_taddr(),
-            _   => {
-                let e = format!("Unrecognized address type: {}", addr_type);
-                error!("{}", e);
-                return Err(e);
+            match addr_type {
+                "z" => wallet.add_zaddr(),
+                "t" => wallet.add_taddr(),
+                _   => {
+                    let e = format!("Unrecognized address type: {}", addr_type);
+                    error!("{}", e);
+                    return Err(e);
+                }
             }
         };
+
+        self.do_save()?;
 
         Ok(array![new_address])
     }
 
-    pub fn do_rescan(&self) -> Result<JsonValue, String> {
-        info!("Rescan starting");
+    pub fn clear_state(&self) {
         // First, clear the state from the wallet
         self.wallet.read().unwrap().clear_blocks();
 
         // Then set the initial block
         self.set_wallet_initial_state(self.wallet.read().unwrap().get_birthday());
+        info!("Cleared wallet state");        
+    }
+
+    pub fn do_rescan(&self) -> Result<JsonValue, String> {
+        if !self.wallet.read().unwrap().is_unlocked_for_spending() {
+            warn!("Wallet is locked, new HD addresses won't be added!");
+        }
         
+        info!("Rescan starting");
+        
+        self.clear_state();
+
         // Then, do a sync, which will force a full rescan from the initial state
         let response = self.do_sync(true);
+
+        self.do_save()?;
         info!("Rescan finished");
 
         response
@@ -1074,24 +1145,28 @@ pub mod tests {
         let lc = super::LightClient::unconnected(TEST_SEED.to_string(), None).unwrap();
 
         assert!(!lc.do_export(None).is_err());
-        assert!(!lc.do_new_address("zs").is_err());
-        assert!(!lc.do_new_address("R").is_err());
+        assert!(!lc.do_new_address("z").is_err());
+        assert!(!lc.do_new_address("t").is_err());
         assert_eq!(lc.do_seed_phrase().unwrap()["seed"], TEST_SEED.to_string());
 
         // Encrypt and Lock the wallet
         lc.wallet.write().unwrap().encrypt("password".to_string()).unwrap();
         assert!(lc.do_export(None).is_err());
         assert!(lc.do_seed_phrase().is_err());
-        assert!(lc.do_new_address("R").is_err());
-        assert!(lc.do_new_address("zs").is_err());
-        assert!(lc.do_send(vec![("zs", 0, None)]).is_err());
+        assert!(lc.do_new_address("t").is_err());
+        assert!(lc.do_new_address("z").is_err());
+        assert!(lc.do_send(vec![("z", 0, None)]).is_err());
 
         // Do a unlock, and make sure it all works now
         lc.wallet.write().unwrap().unlock("password".to_string()).unwrap();
         assert!(!lc.do_export(None).is_err());
         assert!(!lc.do_seed_phrase().is_err());
-        assert!(!lc.do_new_address("R").is_err());
-        assert!(!lc.do_new_address("zs").is_err());
+
+        // This will lock the wallet again, so after this, we'll need to unlock again
+        assert!(!lc.do_new_address("t").is_err());
+        lc.wallet.write().unwrap().unlock("password".to_string()).unwrap();
+        
+        assert!(!lc.do_new_address("z").is_err());
     }
 
     #[test]
@@ -1100,10 +1175,10 @@ pub mod tests {
 
         // Add new z and t addresses
             
-        let taddr1 = lc.do_new_address("R").unwrap()[0].as_str().unwrap().to_string();
-        let taddr2 = lc.do_new_address("R").unwrap()[0].as_str().unwrap().to_string();        
-        let zaddr1 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
-        let zaddr2 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
+        let taddr1 = lc.do_new_address("t").unwrap()[0].as_str().unwrap().to_string();
+        let taddr2 = lc.do_new_address("t").unwrap()[0].as_str().unwrap().to_string();        
+        let zaddr1 = lc.do_new_address("z").unwrap()[0].as_str().unwrap().to_string();
+        let zaddr2 = lc.do_new_address("z").unwrap()[0].as_str().unwrap().to_string();
         
         let addresses = lc.do_address();
         assert_eq!(addresses["z_addresses"].len(), 3);

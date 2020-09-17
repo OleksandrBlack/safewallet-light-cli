@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use json::{object};
 
 use crate::lightclient::LightClient;
+use crate::lightwallet::LightWallet;
 
 pub trait Command {
     fn help(&self) -> String;
@@ -109,6 +110,32 @@ impl Command for RescanCommand {
     }
 }
 
+
+struct ClearCommand {}
+impl Command for ClearCommand {
+    fn help(&self) -> String {
+        let mut h = vec![];
+        h.push("Clear the wallet state, rolling back the wallet to an empty state.");
+        h.push("Usage:");
+        h.push("clear");
+        h.push("");
+        h.push("This command will clear all notes, utxos and transactions from the wallet, setting up the wallet to be synced from scratch.");
+        
+        h.join("\n")
+    }
+
+    fn short_help(&self) -> String {
+        "Clear the wallet state, rolling back the wallet to an empty state.".to_string()
+    }
+
+    fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {
+       lightclient.clear_state();
+       
+       let result = object!{ "result" => "success" };
+       
+       result.pretty(2)
+    }
+}
 
 struct HelpCommand {}
 impl Command for HelpCommand {
@@ -437,6 +464,7 @@ impl Command for SendCommand {
         h.push("OR");
         h.push("send '[{'address': <address>, 'amount': <amount in zatoshis>, 'memo': <optional memo>}, ...]'");
         h.push("");
+        h.push("NOTE: The fee required to send this transaction (currently SAFE 0.0001) is additionally detected from your balance.");
         h.push("Example:");
         h.push("send ztestsapling1x65nq4dgp0qfywgxcwk9n0fvm4fysmapgr2q00p85ju252h6l7mmxu2jg9cqqhtvzd69jwhgv8d 200000 \"Hello from the command line\"");
         h.push("");
@@ -454,7 +482,7 @@ impl Command for SendCommand {
         // 2 - A single argument in the form of a JSON string that is "[{address: address, value: value, memo: memo},...]"
 
         // 1 - Destination address. T or Z address
-         if args.len() < 1 || args.len() > 3 {
+        if args.len() < 1 || args.len() > 3 {
             return self.help();
         }
 
@@ -470,11 +498,11 @@ impl Command for SendCommand {
                 }
             };
 
-         if !json_args.is_array() {
+            if !json_args.is_array() {
                 return format!("Couldn't parse argument as array\n{}", self.help());
             }
 
-                    let maybe_send_args = json_args.members().map( |j| {
+            let maybe_send_args = json_args.members().map( |j| {
                 if !j.has_key("address") || !j.has_key("amount") {
                     Err(format!("Need 'address' and 'amount'\n"))
                 } else {
@@ -487,6 +515,8 @@ impl Command for SendCommand {
                 Err(s) => { return format!("Error: {}\n{}", s, self.help()); }
             }
         } else if args.len() == 2 || args.len() == 3 {
+            let address = args[0].to_string();
+
             // Make sure we can parse the amount
             let value = match args[1].parse::<u64>() {
                 Ok(amt) => amt,
@@ -495,7 +525,12 @@ impl Command for SendCommand {
                 }
             };
 
-            let memo = if args.len() == 3 { Some(args[2].to_string()) } else {None};
+            let memo = if args.len() == 3 { Some(args[2].to_string()) } else { None };
+
+            // Memo has to be None if not sending to a shileded address
+            if memo.is_some() && !LightWallet::is_shielded_address(&address, &lightclient.config) {
+                return format!("Can't send a memo to the non-shielded address {}", address);
+            }
             
             vec![(args[0].to_string(), value, memo)]
         } else {
@@ -606,10 +641,11 @@ struct HeightCommand {}
 impl Command for HeightCommand {
     fn help(&self)  -> String {
         let mut h = vec![];
-        h.push("Get the latest block height that the wallet is at");
+        h.push("Get the latest block height that the wallet is at.");
         h.push("Usage:");
-        h.push("height");
+        h.push("height [do_sync = true | false]");
         h.push("");
+        h.push("Pass 'true' (default) to sync to the server to get the latest block height. Pass 'false' to get the latest height in the wallet without checking with the server.");
 
         h.join("\n")
     }
@@ -618,11 +654,19 @@ impl Command for HeightCommand {
         "Get the latest block height that the wallet is at".to_string()
     }
 
-    fn exec(&self, _args: &[&str], lightclient: &LightClient) -> String {
-        format!("{}",
-            object! {
-                "height" => lightclient.last_scanned_height()
-            }.pretty(2))
+    fn exec(&self, args: &[&str], lightclient: &LightClient) -> String {
+        if args.len() > 1 {
+            return format!("Didn't understand arguments\n{}", self.help());
+        }
+
+        if args.len() == 0 || (args.len() == 1 && args[0].trim() == "true") {
+            match lightclient.do_sync(true) {
+                Ok(_) => format!("{}", object! { "height" => lightclient.last_scanned_height()}.pretty(2)),
+                Err(e) => e
+            }
+        } else {
+            format!("{}", object! { "height" => lightclient.last_scanned_height()}.pretty(2))
+        }
     }
 }
 
@@ -753,6 +797,7 @@ pub fn get_commands() -> Box<HashMap<String, Box<dyn Command>>> {
     map.insert("syncstatus".to_string(),        Box::new(SyncStatusCommand{}));
     map.insert("encryptionstatus".to_string(),  Box::new(EncryptionStatusCommand{}));
     map.insert("rescan".to_string(),            Box::new(RescanCommand{}));
+    map.insert("clear".to_string(),             Box::new(ClearCommand{}));
     map.insert("help".to_string(),              Box::new(HelpCommand{}));
     map.insert("balance".to_string(),           Box::new(BalanceCommand{}));
     map.insert("addresses".to_string(),         Box::new(AddressCommand{}));
