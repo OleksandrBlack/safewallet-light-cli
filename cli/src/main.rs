@@ -4,7 +4,6 @@ use safewallet_cli::{configure_clapapp,
                     startup,
                     start_interactive,
                     attempt_recover_seed};
-                    //version::VERSION
 use log::error;
 
 pub fn main() {
@@ -13,10 +12,9 @@ pub fn main() {
     let fresh_app = App::new("Safewallet CLI");
     let configured_app = configure_clapapp!(fresh_app);
     let matches = configured_app.get_matches();
-
     if matches.is_present("recover") {
         // Create a Light Client Config in an attempt to recover the file.
-        attempt_recover_seed(matches.value_of("password").map(|s| s.to_string()));
+        attempt_recover_seed();
         return;
     }
 
@@ -56,9 +54,8 @@ pub fn main() {
     let (command_tx, resp_rx) = match startup(server, dangerous, seed, birthday, !nosync, command.is_none()) {
         Ok(c) => c,
         Err(e) => {
-            let emsg = format!("Error during startup:{}\nIf you repeatedly run into this issue, you might have to restore your wallet from your seed phrase.", e);
-            eprintln!("{}", emsg);
-            error!("{}", emsg);
+            eprintln!("Error during startup: {}", e);
+            error!("Error during startup: {}", e);
             if cfg!(target_os = "unix" ) {
                 match e.raw_os_error() {
                     Some(13) => report_permission_error(),
